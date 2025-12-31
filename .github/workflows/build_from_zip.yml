@@ -1,12 +1,12 @@
-name: Build APK (from ZIP) — Stable+Patched
+name: Build APK (Auto ZIP) — Stable
 
 on:
   workflow_dispatch:
   push:
     branches: [ "main" ]
     paths:
-      - "ultra_pro_android_repo_template_v2.zip"
       - ".github/workflows/build_from_zip.yml"
+      - "*.zip"
 
 jobs:
   build:
@@ -20,15 +20,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y unzip curl
 
-      - name: Verify ZIP exists
+      - name: Pick ZIP (prefer v3)
         run: |
+          ZIP_FILE="$(ls -1 ultra_pro_android_repo_template_v3.zip ultra_pro_android_repo_template_v2.zip 2>/dev/null | head -n 1)"
+          echo "ZIP_FILE=$ZIP_FILE"
+          test -n "$ZIP_FILE"
+          echo "$ZIP_FILE" > ZIP_FILE.txt
           ls -la
-          test -f ultra_pro_android_repo_template_v2.zip
 
       - name: Extract ZIP
         run: |
+          ZIP_FILE="$(cat ZIP_FILE.txt)"
           mkdir -p project
-          unzip -q ultra_pro_android_repo_template_v2.zip -d project
+          unzip -q "$ZIP_FILE" -d project
           ls -la project
 
       - name: Detect Android project root
@@ -38,26 +42,6 @@ jobs:
           test -n "$ROOT"
           echo "$ROOT" > ROOT_PATH.txt
           ls -la "$ROOT"
-
-      - name: Patch Gradle repositories conflict (fix FAIL_ON_PROJECT_REPOS)
-        run: |
-          ROOT="$(cat ROOT_PATH.txt)"
-          cd "$ROOT"
-          echo "Before patch: build.gradle"
-          nl -ba build.gradle || true
-
-          python3 - <<'PY'
-          import re, pathlib
-          p = pathlib.Path("build.gradle")
-          s = p.read_text(encoding="utf-8")
-          # حذف بلاک allprojects { repositories { ... } } که با dependencyResolutionManagement تضاد دارد
-          s2 = re.sub(r"(?ms)^\s*allprojects\s*\{\s*repositories\s*\{.*?\}\s*\}\s*\n?", "", s)
-          p.write_text(s2, encoding="utf-8")
-          print("Patched build.gradle ✅")
-          PY
-
-          echo "After patch: build.gradle"
-          nl -ba build.gradle || true
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -78,7 +62,6 @@ jobs:
           GRADLE_VERSION="8.2"
           curl -L -o gradle.zip "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip"
           unzip -q gradle.zip -d /tmp
-          echo "GRADLE_HOME=/tmp/gradle-${GRADLE_VERSION}" >> $GITHUB_ENV
           echo "/tmp/gradle-${GRADLE_VERSION}/bin" >> $GITHUB_PATH
           gradle -v
 
@@ -86,7 +69,7 @@ jobs:
         run: |
           ROOT="$(cat ROOT_PATH.txt)"
           cd "$ROOT"
-          gradle :app:assembleDebug --no-daemon
+          gradle :app:assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
