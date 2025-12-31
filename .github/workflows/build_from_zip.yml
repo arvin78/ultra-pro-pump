@@ -1,4 +1,4 @@
-name: Build APK (from ZIP)
+name: Build APK (from ZIP) — Stable
 
 on:
   workflow_dispatch:
@@ -29,7 +29,7 @@ jobs:
         run: |
           mkdir -p project
           unzip -q ultra_pro_android_repo_template_v2.zip -d project
-          echo "Extracted:"
+          echo "Top of extracted folder:"
           ls -la project
 
       - name: Detect Android project root
@@ -49,22 +49,28 @@ jobs:
       - name: Install Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Fetch Gradle wrapper jar
+      - name: Ensure Android packages + accept licenses
         run: |
-          ROOT="$(cat ROOT_PATH.txt)"
-          cd "$ROOT"
-          chmod +x scripts/fetch-wrapper.sh || true
-          bash scripts/fetch-wrapper.sh
+          sdkmanager --install "platform-tools" "platforms;android-34" "build-tools;34.0.0" || true
+          yes | sdkmanager --licenses || true
+
+      - name: Download Gradle 8.2 (no wrapper)
+        run: |
+          GRADLE_VERSION="8.2"
+          curl -L -o gradle.zip "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip"
+          unzip -q gradle.zip -d /tmp
+          echo "GRADLE_HOME=/tmp/gradle-${GRADLE_VERSION}" >> $GITHUB_ENV
+          echo "/tmp/gradle-${GRADLE_VERSION}/bin" >> $GITHUB_PATH
+          gradle -v
 
       - name: Build Debug APK
         run: |
           ROOT="$(cat ROOT_PATH.txt)"
           cd "$ROOT"
-          chmod +x gradlew || true
-          ./gradlew :app:assembleDebug
+          gradle :app:assembleDebug --no-daemon
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
-          path: project/**/app/build/outputs/apk/debug/app-debug.apk
+          path: project/**/app/build/outputs/apk/debug/app-debug.apk 
