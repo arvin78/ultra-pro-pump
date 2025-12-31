@@ -1,6 +1,6 @@
-name: Build APK (Final - NoHeredoc)
+name: Build APK (ZIP v3 Only - Final)
 
-'on':
+on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
@@ -17,19 +17,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y unzip curl python3
 
-      - name: Pick ZIP (v3 > v2)
+      - name: Verify ZIP v3 exists
         run: |
-          ZIP_FILE="$(ls -1 ultra_pro_android_repo_template_v3.zip ultra_pro_android_repo_template_v2.zip 2>/dev/null | head -n 1)"
-          echo "ZIP_FILE=$ZIP_FILE"
-          test -n "$ZIP_FILE"
-          echo "$ZIP_FILE" > ZIP_FILE.txt
           ls -la
+          test -f ultra_pro_android_repo_template_v3.zip
 
-      - name: Extract ZIP
+      - name: Extract ZIP v3
         run: |
-          ZIP_FILE="$(cat ZIP_FILE.txt)"
           mkdir -p project
-          unzip -q "$ZIP_FILE" -d project
+          unzip -q ultra_pro_android_repo_template_v3.zip -d project
+          echo "Extracted top:"
           ls -la project
 
       - name: Detect Android project root
@@ -44,14 +41,14 @@ jobs:
         run: |
           ROOT="$(cat ROOT_PATH.txt)"
           cd "$ROOT"
-          python3 -c "from pathlib import Path; f=Path('settings.gradle'); k=Path('settings.gradle.kts'); p=f if f.exists() else (k if k.exists() else None); assert p, 'settings.gradle not found'; s=p.read_text(encoding='utf-8'); p.write_text(s.replace('RepositoriesMode.FAIL_ON_PROJECT_REPOS','RepositoriesMode.PREFER_SETTINGS'), encoding='utf-8'); print('patched', p)"
+          python3 -c "from pathlib import Path; f=Path('settings.gradle'); k=Path('settings.gradle.kts'); p=f if f.exists() else (k if k.exists() else None); assert p, 'settings.gradle(.kts) not found'; s=p.read_text(encoding='utf-8'); p.write_text(s.replace('RepositoriesMode.FAIL_ON_PROJECT_REPOS','RepositoriesMode.PREFER_SETTINGS'), encoding='utf-8'); print('patched', p)"
 
       - name: Remove project repositories blocks (safe) — NO HEREDOC
         run: |
           ROOT="$(cat ROOT_PATH.txt)"
           cd "$ROOT"
           if [ -f build.gradle ]; then
-            python3 -c "import re; from pathlib import Path; p=Path('build.gradle'); s=p.read_text(encoding='utf-8'); s=re.sub(r'(?ms)^\\s*allprojects\\s*\\{\\s*repositories\\s*\\{.*?\\}\\s*\\}\\s*\\n?','',s); s=re.sub(r'(?ms)^\\s*subprojects\\s*\\{\\s*repositories\\s*\\{.*?\\}\\s*\\}\\s*\\n?','',s); p.write_text(s,encoding='utf-8'); print('patched build.gradle')"
+            python3 -c "import re; from pathlib import Path; p=Path('build.gradle'); s=p.read_text(encoding='utf-8'); s=re.sub(r'(?ms)^\\s*allprojects\\s*\\{\\s*repositories\\s*\\{.*?\\}\\s*\\}\\s*\\n?','',s); s=re.sub(r'(?ms)^\\s*subprojects\\s*\\{\\s*repositories\\s*\\{.*?\\}\\s*\\}\\s*\\n?','',s); p.write_text(s,encoding='utf-8'); print('patched build.gradle repos blocks')"
           fi
 
       - name: Ensure AndroidX flags
@@ -59,8 +56,8 @@ jobs:
           ROOT="$(cat ROOT_PATH.txt)"
           cd "$ROOT"
           touch gradle.properties
-          (grep -q "android.useAndroidX" gradle.properties || echo "android.useAndroidX=true" >> gradle.properties)
-          (grep -q "android.enableJetifier" gradle.properties || echo "android.enableJetifier=true" >> gradle.properties)
+          grep -q "android.useAndroidX=true" gradle.properties || echo "android.useAndroidX=true" >> gradle.properties
+          grep -q "android.enableJetifier=true" gradle.properties || echo "android.enableJetifier=true" >> gradle.properties
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
