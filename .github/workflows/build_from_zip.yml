@@ -1,4 +1,4 @@
-name: Build APK (Final - AutoRun + RepoFix)
+name: Build APK (Final - NoHeredoc)
 
 'on':
   push:
@@ -19,9 +19,7 @@ jobs:
 
       - name: Pick ZIP (v3 > v2)
         run: |
-          ZIP_FILE=""
-          if [ -f ultra_pro_android_repo_template_v3.zip ]; then ZIP_FILE="ultra_pro_android_repo_template_v3.zip"; fi
-          if [ -z "$ZIP_FILE" ] && [ -f ultra_pro_android_repo_template_v2.zip ]; then ZIP_FILE="ultra_pro_android_repo_template_v2.zip"; fi
+          ZIP_FILE="$(ls -1 ultra_pro_android_repo_template_v3.zip ultra_pro_android_repo_template_v2.zip 2>/dev/null | head -n 1)"
           echo "ZIP_FILE=$ZIP_FILE"
           test -n "$ZIP_FILE"
           echo "$ZIP_FILE" > ZIP_FILE.txt
@@ -32,7 +30,6 @@ jobs:
           ZIP_FILE="$(cat ZIP_FILE.txt)"
           mkdir -p project
           unzip -q "$ZIP_FILE" -d project
-          echo "Extracted top:"
           ls -la project
 
       - name: Detect Android project root
@@ -43,42 +40,18 @@ jobs:
           echo "$ROOT" > ROOT_PATH.txt
           ls -la "$ROOT"
 
-      # --- FIX اصلی: جلوگیری از خطای repository گوگل ---
-      - name: Fix settings.gradle repositoriesMode (FAIL -> PREFER_SETTINGS)
+      - name: Fix settings repositoriesMode (FAIL -> PREFER_SETTINGS)
         run: |
           ROOT="$(cat ROOT_PATH.txt)"
           cd "$ROOT"
-          python3 - <<'PY'
-          from pathlib import Path
-          files = [Path("settings.gradle"), Path("settings.gradle.kts")]
-          f = next((p for p in files if p.exists()), None)
-          if not f:
-              raise SystemExit("settings.gradle(.kts) not found")
-          s = f.read_text(encoding="utf-8")
-          s2 = s.replace("RepositoriesMode.FAIL_ON_PROJECT_REPOS", "RepositoriesMode.PREFER_SETTINGS")
-          f.write_text(s2, encoding="utf-8")
-          print("Patched:", f)
-          PY
+          python3 -c "from pathlib import Path; f=Path('settings.gradle'); k=Path('settings.gradle.kts'); p=f if f.exists() else (k if k.exists() else None); assert p, 'settings.gradle not found'; s=p.read_text(encoding='utf-8'); p.write_text(s.replace('RepositoriesMode.FAIL_ON_PROJECT_REPOS','RepositoriesMode.PREFER_SETTINGS'), encoding='utf-8'); print('patched', p)"
 
-      # این بخش اضافه است ولی کمک می‌کند دوباره گیر همین خطا نیفتیم
-      - name: Remove project repositories blocks (safe)
+      - name: Remove project repositories blocks (safe) — NO HEREDOC
         run: |
           ROOT="$(cat ROOT_PATH.txt)"
           cd "$ROOT"
           if [ -f build.gradle ]; then
-            python3 - <<'PY'
-            import re
-            from pathlib import Path
-            p = Path("build.gradle")
-            s = p.read_text(encoding="utf-8")
-
-            # حذف allprojects/subprojects repositories اگر وجود داشت
-            s = re.sub(r"(?ms)^\s*allprojects\s*\{\s*repositories\s*\{.*?\}\s*\}\s*\n?", "", s)
-            s = re.sub(r"(?ms)^\s*subprojects\s*\{\s*repositories\s*\{.*?\}\s*\}\s*\n?", "", s)
-
-            p.write_text(s, encoding="utf-8")
-            print("Patched build.gradle repositories blocks")
-            PY
+            python3 -c "import re; from pathlib import Path; p=Path('build.gradle'); s=p.read_text(encoding='utf-8'); s=re.sub(r'(?ms)^\\s*allprojects\\s*\\{\\s*repositories\\s*\\{.*?\\}\\s*\\}\\s*\\n?','',s); s=re.sub(r'(?ms)^\\s*subprojects\\s*\\{\\s*repositories\\s*\\{.*?\\}\\s*\\}\\s*\\n?','',s); p.write_text(s,encoding='utf-8'); print('patched build.gradle')"
           fi
 
       - name: Ensure AndroidX flags
