@@ -1,6 +1,8 @@
-name: Build APK (Final Fix)
+name: Build APK (Final - AutoRun + RepoFix)
 
-on:
+'on':
+  push:
+    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
@@ -15,9 +17,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y unzip curl python3
 
-      - name: Pick ZIP (prefer v3, else v2)
+      - name: Pick ZIP (v3 > v2)
         run: |
-          ZIP_FILE="$(ls -1 ultra_pro_android_repo_template_v3.zip ultra_pro_android_repo_template_v2.zip 2>/dev/null | head -n 1)"
+          ZIP_FILE=""
+          if [ -f ultra_pro_android_repo_template_v3.zip ]; then ZIP_FILE="ultra_pro_android_repo_template_v3.zip"; fi
+          if [ -z "$ZIP_FILE" ] && [ -f ultra_pro_android_repo_template_v2.zip ]; then ZIP_FILE="ultra_pro_android_repo_template_v2.zip"; fi
           echo "ZIP_FILE=$ZIP_FILE"
           test -n "$ZIP_FILE"
           echo "$ZIP_FILE" > ZIP_FILE.txt
@@ -33,38 +37,31 @@ jobs:
 
       - name: Detect Android project root
         run: |
-          ROOT="$(dirname "$(find project -maxdepth 6 -type f \( -name settings.gradle -o -name settings.gradle.kts \) | head -n 1)")"
+          ROOT="$(dirname "$(find project -maxdepth 7 -type f \( -name settings.gradle -o -name settings.gradle.kts \) | head -n 1)")"
           echo "ROOT=$ROOT"
           test -n "$ROOT"
           echo "$ROOT" > ROOT_PATH.txt
           ls -la "$ROOT"
 
-      - name: FIX 1 — Stop FAIL_ON_PROJECT_REPOS (prevents repo crash)
+      # --- FIX اصلی: جلوگیری از خطای repository گوگل ---
+      - name: Fix settings.gradle repositoriesMode (FAIL -> PREFER_SETTINGS)
         run: |
           ROOT="$(cat ROOT_PATH.txt)"
           cd "$ROOT"
           python3 - <<'PY'
           from pathlib import Path
-          import re
-
-          candidates = [Path("settings.gradle"), Path("settings.gradle.kts")]
-          f = next((p for p in candidates if p.exists()), None)
+          files = [Path("settings.gradle"), Path("settings.gradle.kts")]
+          f = next((p for p in files if p.exists()), None)
           if not f:
               raise SystemExit("settings.gradle(.kts) not found")
-
           s = f.read_text(encoding="utf-8")
-
-          # تغییر ریشه‌ای: FAIL -> PREFER_SETTINGS
           s2 = s.replace("RepositoriesMode.FAIL_ON_PROJECT_REPOS", "RepositoriesMode.PREFER_SETTINGS")
-
-          # اگر اصلاً repositoriesMode وجود نداشت، چیزی خراب نکن
-          # فقط همان replace انجام می‌شود
-
           f.write_text(s2, encoding="utf-8")
-          print("Patched", f, "OK")
+          print("Patched:", f)
           PY
 
-      - name: FIX 2 — Remove project repositories blocks (avoid future conflicts)
+      # این بخش اضافه است ولی کمک می‌کند دوباره گیر همین خطا نیفتیم
+      - name: Remove project repositories blocks (safe)
         run: |
           ROOT="$(cat ROOT_PATH.txt)"
           cd "$ROOT"
@@ -75,16 +72,16 @@ jobs:
             p = Path("build.gradle")
             s = p.read_text(encoding="utf-8")
 
-            # حذف allprojects/subprojects repositories (اگر وجود داشت)
+            # حذف allprojects/subprojects repositories اگر وجود داشت
             s = re.sub(r"(?ms)^\s*allprojects\s*\{\s*repositories\s*\{.*?\}\s*\}\s*\n?", "", s)
             s = re.sub(r"(?ms)^\s*subprojects\s*\{\s*repositories\s*\{.*?\}\s*\}\s*\n?", "", s)
 
             p.write_text(s, encoding="utf-8")
-            print("Patched build.gradle OK")
+            print("Patched build.gradle repositories blocks")
             PY
           fi
 
-      - name: FIX 3 — Ensure AndroidX flags (safe)
+      - name: Ensure AndroidX flags
         run: |
           ROOT="$(cat ROOT_PATH.txt)"
           cd "$ROOT"
@@ -101,7 +98,7 @@ jobs:
       - name: Install Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Ensure Android packages + accept licenses
+      - name: Install Android packages + accept licenses
         run: |
           sdkmanager --install "platform-tools" "platforms;android-34" "build-tools;34.0.0" || true
           yes | sdkmanager --licenses || true
@@ -118,7 +115,7 @@ jobs:
         run: |
           ROOT="$(cat ROOT_PATH.txt)"
           cd "$ROOT"
-          gradle :app:assembleDebug --no-daemon --stacktrace
+          gradle :app:assembleDebug --no-daemon --stacktrace --info
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
